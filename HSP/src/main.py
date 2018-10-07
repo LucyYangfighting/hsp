@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn import preprocessing
-
+import networkx
 '''
 以下都是input
 '''
@@ -26,33 +26,34 @@ def preprocessing_data():
     #    l = m[1:]
     #    datalist.append(l)
     # data = np.array(datalist)
+    # TODO
     data = np.random.randint(0, 20, size=[1000, 6])
 
     min_max_scaler = preprocessing.MinMaxScaler()
     data_scaled = min_max_scaler.fit_transform(data)
     return data_scaled
 
-def get_r(data_scaled):
+def get_r(n):
     '''
-    归一化后计算平均距离和hyperparameter半棱长r
+    求 r
     :return: r
     '''
-    J = []  # 平均距离
-    for i in range(dim):
-        data_c = data_scaled[:, i]
-        data_column = sorted(data_c)
-        sum = 0
-        for j in range(1, num_elements):
-            sum += data_column[j] - data_column[j - 1]
-        print(sum)
-        J.append(sum / (num_elements - 1))
-    s = 1
-    print(J)
-    for i in J:
-        s = s * i
-    print(s)
-    r = pow(s, 1 / dim)
-    return r
+    # J = []  # 平均距离
+    # for i in range(dim):
+    #     data_c = data_scaled[:, i]
+    #     data_column = sorted(data_c)
+    #     sum = 0
+    #     for j in range(1, num_elements):
+    #         sum += data_column[j] - data_column[j - 1]
+    #     print(sum)
+    #     J.append(sum / (num_elements - 1))
+    # s = 1
+    # print(J)
+    # for i in J:
+    #     s = s * i
+    # print(s)
+    # r = pow(s, 1 / dim)
+    return 1 / n
 
 def change_r(r):
     '''
