@@ -1,12 +1,17 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
 import numpy as np
+import pandas as pd
+import redis
 from sklearn import preprocessing
 from collections import Counter
 import logging
 import networkx as nx
 import random
 import os
+from sklearn.decomposition import PCA
+from itertools import chain
+
 logging.basicConfig(format='%(asctime)s : %(levelname)s : %(filename)s ： %(funcName)s ： %(message)s',
                     level=logging.INFO,
                     filename='SPvec.log',
@@ -26,10 +31,14 @@ class SPVecGraph(object):
         self.num_elements = len(self.nodelist)
         self.dim = len(self.typelist)
 
-        self.inputs_sorted, self.inputs_sorted_index = self.get_inputs_sorted()
-        self.mappingg_index_nodelist = self.get_mapping_index_nodelist()
+        # self.inputs_sorted, self.inputs_sorted_index = self.get_inputs_sorted()
+        # self.mappingg_index_nodelist = self.get_mapping_index_nodelist()
         self.average_degree = self.get_average_degree()
 
+        self.client = redis.Redis(host='127.0.0.1', port=6379, db=0, charset="utf-8", decode_responses=True)
+        self.INSERT = False
+
+    @DeprecationWarning
     def get_mapping_index_nodelist(self):
         mappingg_index_nodelist = {}
         for index, val in enumerate(self.nodelist):
@@ -37,10 +46,14 @@ class SPVecGraph(object):
         return mappingg_index_nodelist
 
     def preprocessing_data(self):
-        min_max_scaler = preprocessing.MinMaxScaler()
-        matrix = self.input_matrix[:, 1:]
-        data_scaled = min_max_scaler.fit_transform(matrix)
-        return data_scaled
+        if os.path.exists("data/data_scaled.matrix"):
+            return np.loadtxt("data/data_scaled.matrix")
+        else:
+            min_max_scaler = preprocessing.MinMaxScaler()
+            matrix = self.input_matrix[:, 1:]
+            data_scaled = min_max_scaler.fit_transform(matrix)
+            np.savetxt("data/data_scaled.matrix", fmt="%d", X=data_scaled, encoding='utf-8')
+            return data_scaled
 
     def build_input_matrix(self):
         """
@@ -48,11 +61,12 @@ class SPVecGraph(object):
         :return:
         # TODO: extract from main file and treat as data processing part
         """
-        if os.path.exists("data/input.matrix"):
-            return np.loadtxt("data/input.matrix")
+        if os.path.exists("data/pac_test.matrix"):
+            return np.loadtxt("data/pac_test.matrix")
         else:
             logging.info("start build input matrix")
             matrix = []
+            i = 0
             for node in self.nodelist:
                 neighbors = nx.neighbors(self.nx_G, node)
                 mapping_type = []
@@ -62,12 +76,23 @@ class SPVecGraph(object):
                 feature = [node]
                 for t in self.typelist:
                     feature.append(c[t])
+                if i % 100000 == 0:
+                    logging.info("build matrix for %d nodes" % (i))
                 matrix.append(feature)
+
             input_matrix = np.array(matrix)
-            logging.info("build input matrix finished")
-            np.savetxt("data/input.matrix", fmt="%d", X=input_matrix, encoding='utf-8')
+            node_list = input_matrix[:, 1]
+            features = input_matrix[:, 1:]
+            pca = PCA(n_components=0.9)
+            logging.info(" input matrix pca start...")
+            features_pca = pca.fit_transform(features)
+            input_pca_matrix = np.c_[node_list, features_pca]
+            logging.info("after pca the input matrix shape is :{}".format(input_pca_matrix.shape))
+            logging.info("build input matrix and pca finished")
+            np.savetxt("data/input_pca.matrix", fmt="%d", X=input_pca_matrix, encoding='utf-8')
             return input_matrix
 
+    @DeprecationWarning
     def get_inputs_sorted(self):
         inputs = self.data_scaled
         inputs_sorted = np.sort(inputs, axis=0)
@@ -87,7 +112,7 @@ class SPVecGraph(object):
         :return: scaled r
         """
         d_mean = self.get_average_degree()
-        dim = self.inputs_sorted.shape[1]
+        dim = self.data_scaled.shape[1]
         r_new = np.power(d_mean, 1 / dim) * r
         return r_new
 
@@ -104,8 +129,10 @@ class SPVecGraph(object):
         n_nodes = self.nx_G.number_of_nodes()
         return degree / n_nodes
 
+    @DeprecationWarning
     def find_neighbor(self, cr):
         """
+        //TODO:大图上速度超级慢，优化
         得到hypercube中最近邻节点
         :param data_scaled:
         :param cr:
@@ -126,7 +153,7 @@ class SPVecGraph(object):
                 d = self.average_degree
                 time = 0
                 se = set()
-                while k < 2 * d and time < 22:
+                while k < 2 * d and time < 2:
                     for j in range(dim):
                         # while cr < 1:
                         min = self.data_scaled[i][j] - cr
@@ -135,8 +162,8 @@ class SPVecGraph(object):
                         inputs_sorted_index_j = self.inputs_sorted_index[:, j]
                         res = self.binary_search_interval(inputs_sorted_j, inputs_sorted_index_j, min, max)
                         res_array.append(res)
-                    # 求交集intersection
 
+                    # 求交集intersection
                     se = set(res_array[0]).intersection(*res_array[1:])
                     k = len(se)
                     cr = 2 * cr
@@ -146,6 +173,78 @@ class SPVecGraph(object):
                 m = l + list(true_node)
                 logging.info("find neighbors for node %s finished", m[0])
                 result.append(m)
+            self.write_txt("neighbors", result)
+
+    def insert_data_to_redis(self):
+        client = self.client
+        client.flushdb()
+        piple = client.pipeline()
+        df = pd.DataFrame(self.data_scaled,
+                          columns=["x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10"])
+        df["nodeid"] = pd.Series(self.input_matrix[:, 0])
+        i = 0
+        logging.info("start load data into redis...")
+        for index, row in df.iterrows():
+            i += 1
+            piple.zadd("node", row["nodeid"], i)
+            piple.zadd("x1", row["nodeid"], row["x1"])
+            piple.zadd("x2", row["nodeid"], row["x2"])
+            piple.zadd("x3", row["nodeid"], row["x3"])
+            piple.zadd("x4", row["nodeid"], row["x4"])
+            piple.zadd("x5", row["nodeid"], row["x5"])
+            piple.zadd("x6", row["nodeid"], row["x6"])
+            piple.zadd("x7", row["nodeid"], row["x7"])
+            piple.zadd("x8", row["nodeid"], row["x8"])
+            piple.zadd("x9", row["nodeid"], row["x9"])
+            piple.zadd("x10", row["nodeid"], row["x10"])
+            if i % 500 == 0:
+                try:
+                    piple.execute()
+                    logging.info("have insert %d data into redis..." % i)
+                except Exception as e:
+                    logging.error("error : at %d insert into redis failed" % i + str(e))
+            if i > 100000:
+                break
+        logging.info("insert all data into redis...")
+        piple.reset()
+        del df
+
+    def find_neighbor_redis(self, cr):
+        if os.path.exists("data/neighbors.txt"):
+            pass
+        else:
+            if self.INSERT:
+                self.insert_data_to_redis()
+            # find neighbours
+            result = []
+            d = self.average_degree
+            print(d)
+            dim = self.data_scaled.shape[1]
+            print(self.num_elements)
+            for i in range(self.num_elements):
+                time = 0
+                k = 0
+                nodeset = set()
+                piple = self.client.pipeline()
+                while k < 2 * d and time < 2:
+                    for j in range(dim):
+                        min = self.data_scaled[i][j] - cr
+                        max = self.data_scaled[i][j] + cr
+                        # print(min)
+                        # print(max)
+                        piple.zrangebyscore("x" + str(j + 1), min, max)
+                    redis_res = piple.execute()
+                    redis_res = [list(map(int, map(float, res))) for res in redis_res]
+                    # nodeset = set(list(chain(*redis_res)))
+                    nodeset = set(redis_res[0]).intersection(*redis_res[1:])
+                    cr = 2 * cr
+                    time = time + 1
+                    k = len(nodeset)
+                if i % 100000:
+                    logging.info("have find %d node neighbours..." % i)
+                if len(nodeset > 4 * d):
+                    nodeset = random.sample(list(nodeset), int(2*d))
+                result.append(nodeset)
             self.write_txt("neighbors", result)
 
     def binary_search_interval(self, feature_j, feature_j_index, min, max):
@@ -222,11 +321,11 @@ class SPVecGraph(object):
                     '''随机游走参数是游走的长度，随机方式rand，alpha是可能性一个参数，start是开始节点'''
                     walks.append(self.random_walk(walk_length, rand=rand, alpha=alpha, start=node))
             logging.info("random walks finished...")
-            self.write_txt("walks", walks)
+            self.write_txt("walks.txt", walks)
             return walks
 
     def write_txt(self, name, list):
-        with open("data/" + name + ".txt", "a") as f:
+        with open("data/" + name, "a") as f:
             for li in list:
                 s = ''
                 for l in li:

@@ -6,7 +6,8 @@ from src import SPVec
 from gensim.models import Word2Vec
 import logging
 
-logging.basicConfig(format='%(asctime)s : %(levelname)s : %(filename)s ： %(funcName)s ： %(message)s', level=logging.INFO,
+logging.basicConfig(format='%(asctime)s : %(levelname)s : %(filename)s ： %(funcName)s ： %(message)s',
+                    level=logging.INFO,
                     filename='SPvec.log',
                     filemode='a+')
 
@@ -64,26 +65,22 @@ def get_dim_numnodes():
     """
     # f = open(args.input, "r")
     # lines = f.readlines()
-    typelist = []
+    typelist = set()
     dict_tailnode = {}
+    con_type_list = [30, 168, 19, 81, 167, 114, 15, 184, 130, 43, 5, 12, 29, 46, 58, 129, 126, 44, 170,
+                     59, 13, 191, 60, 123, 74, 28, 23, 201, 47, 37, 4, 116, 121, 2, 200, 109, 33, 61, 7, 204]
     with open(args.type, "r") as f:
         for line in f.readlines():
             m = line.strip().split(' ')
             head = m[0]
-            # tail = m[1]
-            tail_type = m[1]
-
-            # nodeslist.append(head)
-            typelist.append(tail_type)
+            tail_type = int(m[1])
+            if tail_type not in con_type_list:
+                tail_type = -1
+            typelist.add(tail_type)
             dict_tailnode[head] = tail_type
 
-    # nodesset = set(nodeslist)
-    typeset = sorted(set(typelist))
-
-    # logging.info("number of type of tailnodes(dim): %s", len(typeset))
-    # logging.info("number of nodes(num_elements) : %s", len(nodesset))
-
-    return list(typeset),  dict_tailnode
+    typeset = sorted(typelist)
+    return list(typeset), dict_tailnode
 
 
 def learn_embeddings(walks):
@@ -100,22 +97,23 @@ def main(args):
     type_list, node_type = get_dim_numnodes()
     node_list = nx.nodes(nx_G)
     SP = SPVec.SPVecGraph(nx_G, type_list, node_list, node_type)
-    r = SP.get_r(nx.number_of_nodes(nx_G))
-    SP.find_neighbor(r)
+    r = SP.get_r(nx.number_of_nodes(nx_G))  # 2.7529984971381205e-07
+    change_r = SP.change_r(r)  # 3.6870336653401483e-07
+    SP.find_neighbor_redis(change_r)
 
     # 生成新的图开始随机游走，walks是随机游走生成的多个节点序列
-    SP.new_graph()
-    new_G = read_graph("data/karate.edgelist")
-    walks = SP.build_walks(new_G, num_walks=args.num_walks, walk_length=args.walk_length, alpha=0)
-    learn_embeddings(walks)
+    # SP.new_graph()
+    # new_G = read_graph("data/karate.edgelist")
+    # walks = SP.build_walks(new_G, num_walks=args.num_walks, walk_length=args.walk_length, alpha=0)
+    # learn_embeddings(walks)
 
 
 if __name__ == '__main__':
     args = parse_args()
-    # args.input = 'data/umls-subset100w.csv'
-    # args.type = 'data/umls_CUI_types_washed.csv'
-    args.input = 'graph.txt'
-    args.type = 'type.txt'
+    args.input = 'data/umls-subset100w.csv'
+    args.type = 'data/umls_CUI_types_washed.csv'
+    # args.input = 'graph.txt'
+    # args.type = 'type.txt'
     args.output = './result.emb'
 
     main(args)
