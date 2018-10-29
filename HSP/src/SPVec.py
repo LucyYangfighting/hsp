@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import redis
+import sys
 from sklearn import preprocessing
 from collections import Counter
 import logging
@@ -10,7 +11,6 @@ import networkx as nx
 import random
 import os
 from sklearn.decomposition import PCA
-from itertools import chain
 
 logging.basicConfig(format='%(asctime)s : %(levelname)s : %(filename)s ： %(funcName)s ： %(message)s',
                     level=logging.INFO,
@@ -36,7 +36,7 @@ class SPVecGraph(object):
         self.average_degree = self.get_average_degree()
 
         self.client = redis.Redis(host='127.0.0.1', port=6379, db=0, charset="utf-8", decode_responses=True)
-        self.INSERT = False
+        self.INSERT = True
 
     @DeprecationWarning
     def get_mapping_index_nodelist(self):
@@ -52,7 +52,7 @@ class SPVecGraph(object):
             min_max_scaler = preprocessing.MinMaxScaler()
             matrix = self.input_matrix[:, 1:]
             data_scaled = min_max_scaler.fit_transform(matrix)
-            np.savetxt("data/data_scaled.matrix", fmt="%d", X=data_scaled, encoding='utf-8')
+            np.savetxt("data/data_scaled.matrix", fmt="%f", X=data_scaled, encoding='utf-8')
             return data_scaled
 
     def build_input_matrix(self):
@@ -113,7 +113,7 @@ class SPVecGraph(object):
         """
         d_mean = self.get_average_degree()
         dim = self.data_scaled.shape[1]
-        r_new = np.power(d_mean, 1 / dim) * r
+        r_new = np.power(d_mean, 1 / dim) * 0.5 * r
         return r_new
 
     def get_average_degree(self):
@@ -208,6 +208,7 @@ class SPVecGraph(object):
         logging.info("insert all data into redis...")
         piple.reset()
         del df
+        self.client.cl
 
     def find_neighbor_redis(self, cr):
         if os.path.exists("data/neighbors.txt"):
@@ -217,32 +218,33 @@ class SPVecGraph(object):
                 self.insert_data_to_redis()
             # find neighbours
             result = []
-            d = self.average_degree
+            d = self.average_degree   # d 18.565698
             print(d)
             dim = self.data_scaled.shape[1]
-            print(self.num_elements)
+            print(self.num_elements)  # 3632403
+            piple = self.client.pipeline()
             for i in range(self.num_elements):
                 time = 0
                 k = 0
                 nodeset = set()
-                piple = self.client.pipeline()
                 while k < 2 * d and time < 2:
                     for j in range(dim):
                         min = self.data_scaled[i][j] - cr
                         max = self.data_scaled[i][j] + cr
-                        # print(min)
-                        # print(max)
                         piple.zrangebyscore("x" + str(j + 1), min, max)
+                    t = time.time()
                     redis_res = piple.execute()
+                    print(time.time() - t)
                     redis_res = [list(map(int, map(float, res))) for res in redis_res]
                     # nodeset = set(list(chain(*redis_res)))
                     nodeset = set(redis_res[0]).intersection(*redis_res[1:])
+                    print("the nodeset size is : %d" % (len(nodeset)))
                     cr = 2 * cr
                     time = time + 1
                     k = len(nodeset)
-                if i % 100000:
+                if i % 100000 == 0:
                     logging.info("have find %d node neighbours..." % i)
-                if len(nodeset > 4 * d):
+                if len(nodeset > 2 * d):
                     nodeset = random.sample(list(nodeset), int(2*d))
                 result.append(nodeset)
             self.write_txt("neighbors", result)
