@@ -5,11 +5,6 @@ import logging
 import random
 from multiprocessing.pool import Pool
 import pandas as pd
-import time
-logging.basicConfig(format='%(asctime)s : %(levelname)s : %(filename)s : %(funcName)s : %(message)s',
-                    level=logging.INFO,
-                    filename='with_pandas.log',
-                    filemode='a+')
 
 
 def write_txt(name, list):
@@ -48,8 +43,8 @@ def build_neighbours(cr, start, end, filenum):
             neighbours = random.sample(list(neighbours), int(4 * d))
         startnode = [int(data.loc[i]["nodeid"])]
         result.append(startnode + list(neighbours))
-        if i % 1 == 0:
-            logging.info("find %s nodes neighbours...", str(startnode[0]))
+        if i % 1000 == 0:
+            logging.info("find %s nodes neighbours...", str(i*1000))
     write_txt("neighbors_" + str(filenum) + ".txt", result)
 
 
@@ -62,6 +57,10 @@ def parse_args():
 
 
 def main(args):
+    logging.basicConfig(format='%(asctime)s : %(levelname)s : %(filename)s : %(funcName)s : %(message)s',
+                        level=logging.INFO,
+                        filename=str(args.start_workers) + ".log",
+                        filemode='a+')
     p = Pool(args.end_workers - args.start_workers)
     count = args.count
     cr = 3.6870336653401483e-07 / 2
