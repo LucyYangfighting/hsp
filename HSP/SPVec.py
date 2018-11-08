@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import redis
-import sys
 from sklearn import preprocessing
 from collections import Counter
 import logging

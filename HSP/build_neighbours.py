@@ -113,7 +113,7 @@ def find_neighbor_mul(cr, start, end, filenum):
                     true_node = random.sample(true_node, int(4*d))
                 l = [int(nodelist[i])]
                 m = l + true_node
-                if i % 1 == 0:
+                if i % 1000 == 0:
                     logging.info("find neighbors for node %s finished", m[0])
                 result.append(m)
             write_txt("neighbors_" + str(filenum) + ".txt", str(result))
@@ -144,4 +144,3 @@ def main(args):
 if __name__ == "__main__":
     args = parse_args()
     main(args)
-    np.savetxt()

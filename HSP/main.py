@@ -2,7 +2,7 @@
 # -*- coding:utf-8 -*-
 import argparse
 import networkx as nx
-from src import SPVec
+import SPVec
 from gensim.models import Word2Vec
 import logging
 
