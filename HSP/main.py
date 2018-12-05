@@ -1,13 +1,16 @@
 #!/usr/bin/env python  
 # -*- coding:utf-8 -*-
-__author__ = 'yangqingqing'
-__time__ = '2018/10/7 下午7:22'
-
 import argparse
 import networkx as nx
-from src import SPVec
+import SPVec
 from gensim.models import Word2Vec
-import random
+import logging
+
+logging.basicConfig(format='%(asctime)s : %(levelname)s : %(filename)s ： %(funcName)s ： %(message)s',
+                    level=logging.INFO,
+                    filename='SPvec.log',
+                    filemode='a+')
+
 
 def parse_args():
     """
@@ -29,14 +32,17 @@ def parse_args():
     parser.add_argument('--iter', default=1, type=int, help='Number of epochs in SGD')
     parser.add_argument('--workers', type=int, default=8, help='Number of parallel workers. Default is 8.')
     # 是否有权值：默认无权值
-    parser.add_argument('--weighted', dest='weighted', action='store_true', help='Boolean specifying (un)weighted. Default is unweighted.')
+    parser.add_argument('--weighted', dest='weighted', action='store_true',
+                        help='Boolean specifying (un)weighted. Default is unweighted.')
     parser.add_argument('--unweighted', dest='unweighted', action='store_false')
     parser.set_defaults(weighted=False)
     # 默认为无向图
-    parser.add_argument('--directed', dest='directed', action='store_true', help='Graph is (un)directed. Default is undirected.')
+    parser.add_argument('--directed', dest='directed', action='store_true',
+                        help='Graph is (un)directed. Default is undirected.')
     parser.add_argument('--undirected', dest='undirected', action='store_false')
     parser.set_defaults(directed=True)
     return parser.parse_args()
+
 
 def read_graph(filepath):
     """ 读取networkx中的输入网络."""
@@ -51,54 +57,63 @@ def read_graph(filepath):
         G = G.to_undirected()
     return G
 
+
 def get_dim_numnodes():
-    '''
+    """
     得到类型种类数，即dim
     :return:
-    '''
-    f = open(args.input, "r")
-    lines = f.readlines()
-    typelist=[]
-    nodeslist=[]
-    dict_tailnode={}
-    for line in lines:
-       m = line.strip().split(' ')
-       head = m[0]
-       tail = m[1]
-       tail_type = m[2]
+    """
+    # f = open(args.input, "r")
+    # lines = f.readlines()
+    typelist = set()
+    dict_tailnode = {}
+    con_type_list = [30, 168, 19, 81, 167, 114, 15, 184, 130, 43, 5, 12, 29, 46, 58, 129, 126, 44, 170,
+                     59, 13, 191, 60, 123, 74, 28, 23, 201, 47, 37, 4, 116, 121, 2, 200, 109, 33, 61, 7, 204]
+    with open(args.type, "r") as f:
+        for line in f.readlines():
+            m = line.strip().split(' ')
+            head = m[0]
+            tail_type = int(m[1])
+            if tail_type not in con_type_list:
+                tail_type = -1
+            typelist.add(tail_type)
+            dict_tailnode[head] = tail_type
 
-       nodeslist.append(head)
-       typelist.append(tail_type)
-       dict_tailnode[tail] = tail_type
+    typeset = sorted(typelist)
+    return list(typeset), dict_tailnode
 
-    nodesset=set(nodeslist)
-    typeset=set(typelist)
-
-    print("number of type of tailnodes(dim): %s",len(typeset))
-    print("number of nodes(num_elements) : %s", len(nodesset))
-
-    return list(typeset),list(nodesset),dict_tailnode
 
 def learn_embeddings(walks):
     """Learn embeddings by optimizing the Skipgram objective using SGD.通过使用SGD优化Skipgram目标来学习嵌入"""
     walks = [list(map(str, walk)) for walk in walks]
-    model = Word2Vec(walks, size=args.dimensions, window=args.window_size, min_count=0, sg=1, workers=args.workers, iter=args.iter)
+    model = Word2Vec(walks, size=args.dimensions, window=args.window_size, min_count=0, sg=1, workers=args.workers,
+                     iter=args.iter)
+    logging.info("Start save the model...")
     model.wv.save_word2vec_format(args.output)
-    return
+
 
 def main(args):
-    nx_G = read_graph(args.input)#读G
-    typelist,nodelist,dict_tailnode=get_dim_numnodes()
-    SP=SPVec.SPVecGraph(nx_G,typelist,nodelist,dict_tailnode)
-    r=SP.get_r()
-    SP.find_neighbor(r)
+    nx_G = read_graph(args.input)
+    type_list, node_type = get_dim_numnodes()
+    node_list = nx.nodes(nx_G)
+    SP = SPVec.SPVecGraph(nx_G, type_list, node_list, node_type)
+    r = SP.get_r(nx.number_of_nodes(nx_G))  # 2.7529984971381205e-07
+    change_r = SP.change_r(r)  # 3.6870336653401483e-07
+    SP.find_neighbor_redis(change_r)
 
     # 生成新的图开始随机游走，walks是随机游走生成的多个节点序列
-    SP.new_Graph()
-    new_G=read_graph("data/new_edgelist.txt")
-    walks=SP.build_corpus(new_G,num_paths=args.number_walks,path_length=args.walk_length, alpha=0, rand=random.Random(args.seed))
+    # SP.new_graph()
+    # new_G = read_graph("data/karate.edgelist")
+    # walks = SP.build_walks(new_G, num_walks=args.num_walks, walk_length=args.walk_length, alpha=0)
+    # learn_embeddings(walks)
 
 
 if __name__ == '__main__':
     args = parse_args()
+    args.input = 'data/umls-subset100w.csv'
+    args.type = 'data/umls_CUI_types_washed.csv'
+    # args.input = 'graph.txt'
+    # args.type = 'type.txt'
+    args.output = './result.emb'
+
     main(args)
